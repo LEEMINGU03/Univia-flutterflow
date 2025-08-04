@@ -40,6 +40,13 @@ class _MassageDetailRoommateCopyWidgetState
         _model.setRoleFromParameter(role);
         setState(() {});
       }
+
+      // 채팅방 진입 시 스크롤을 맨 아래로 이동 (약간의 지연을 두어 UI가 완전히 로드된 후 실행)
+      Future.delayed(Duration(milliseconds: 500), () {
+        if (mounted) {
+          _scrollToBottomWithKeyboard();
+        }
+      });
     });
   }
 
@@ -50,6 +57,38 @@ class _MassageDetailRoommateCopyWidgetState
     super.dispose();
   }
 
+  // 스크롤을 맨 아래로 이동시키는 메서드
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  // 키보드가 올라올 때 스크롤 조정
+  void _scrollToBottomWithKeyboard() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        // 키보드 높이를 고려하여 스크롤 조정
+        final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
+        if (keyboardHeight > 0) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent + keyboardHeight,
+            duration: Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        } else {
+          _scrollToBottom();
+        }
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -58,6 +97,7 @@ class _MassageDetailRoommateCopyWidgetState
         FocusManager.instance.primaryFocus?.unfocus();
       },
       child: Scaffold(
+        resizeToAvoidBottomInset: true,
         key: scaffoldKey,
         backgroundColor: Colors.white,
         body: SafeArea(
@@ -249,6 +289,14 @@ class _MassageDetailRoommateCopyWidgetState
             messages = _model.messages;
           }
 
+          // 새 메시지가 추가되면 스크롤을 맨 아래로 이동
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (messages.isNotEmpty) {
+              // 채팅방 진입 시 또는 새 메시지 수신 시 스크롤 조정
+              _scrollToBottomWithKeyboard();
+            }
+          });
+
           return ListView.builder(
             controller: _scrollController,
             padding: EdgeInsets.symmetric(horizontal: 16.0),
@@ -422,6 +470,14 @@ class _MassageDetailRoommateCopyWidgetState
                 onSubmitted: (value) {
                   _sendMessage();
                 },
+                onTap: () {
+                  // 입력 필드 터치 시 스크롤 조정
+                  Future.delayed(Duration(milliseconds: 300), () {
+                    if (mounted) {
+                      _scrollToBottomWithKeyboard();
+                    }
+                  });
+                },
               ),
             ),
           ),
@@ -471,14 +527,10 @@ class _MassageDetailRoommateCopyWidgetState
     // 입력 필드 포커스 해제
     FocusScope.of(context).unfocus();
 
-    // 잠시 후 스크롤을 맨 아래로 이동
+    // 메시지 전송 후 스크롤을 맨 아래로 이동 (키보드 고려)
     Future.delayed(Duration(milliseconds: 300), () {
-      if (mounted && _scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
+      if (mounted) {
+        _scrollToBottomWithKeyboard();
       }
     });
   }

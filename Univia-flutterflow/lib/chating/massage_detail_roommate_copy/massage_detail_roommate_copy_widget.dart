@@ -27,6 +27,14 @@ class _MassageDetailRoommateCopyWidgetState
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
 
+  // 새 메시지 알림 관련 변수
+  bool _showNewMessageIndicator = false;
+  int _lastMessageCount = 0;
+  bool _isInitialLoad = true; // 초기 로드 여부 확인
+
+  // TextField 포커스 노드
+  final FocusNode _textFieldFocusNode = FocusNode();
+
   @override
   void initState() {
     super.initState();
@@ -41,29 +49,54 @@ class _MassageDetailRoommateCopyWidgetState
         setState(() {});
       }
 
-      // 채팅방 진입 시 스크롤을 맨 아래로 이동 (약간의 지연을 두어 UI가 완전히 로드된 후 실행)
-      Future.delayed(Duration(milliseconds: 500), () {
-        if (mounted) {
-          _scrollToBottomWithKeyboard();
-        }
-      });
+      // 채팅방 진입 시 스크롤을 맨 아래로 이동 (더 확실하게)
+      _scrollToBottomOnEntry();
     });
+
+    // 스크롤 리스너 추가
+    _scrollController.addListener(_onScroll);
+  }
+
+  // 채팅방 진입 시 초기 로드 완료 표시만
+  void _scrollToBottomOnEntry() {
+    // 초기 로드 완료만 표시하고 강제 스크롤은 하지 않음
+    Future.delayed(Duration(milliseconds: 1000), () {
+      if (mounted) {
+        _isInitialLoad = false; // 초기 로드 완료 표시
+      }
+    });
+  }
+
+  // 스크롤 이벤트 처리 (reverse 모드에서는 맨 위가 최신 메시지)
+  void _onScroll() {
+    if (_scrollController.hasClients) {
+      bool isAtTop =
+          _scrollController.position.pixels <= 30; // reverse 모드에서는 맨 위가 최신
+
+      // 맨 위에 도달하면 새 메시지 알림 숨기기
+      if (isAtTop && _showNewMessageIndicator) {
+        setState(() {
+          _showNewMessageIndicator = false;
+        });
+      }
+    }
   }
 
   @override
   void dispose() {
     _model.dispose();
     _scrollController.dispose();
+    _textFieldFocusNode.dispose();
     super.dispose();
   }
 
-  // 스크롤을 맨 아래로 이동시키는 메서드
+  // 스크롤을 맨 아래로 이동시키는 메서드 (reverse 모드에서는 맨 위가 최신 메시지)
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: Duration(milliseconds: 300),
+          0, // reverse 모드에서는 0이 최신 메시지
+          duration: Duration(milliseconds: 200),
           curve: Curves.easeOut,
         );
       }
@@ -78,8 +111,8 @@ class _MassageDetailRoommateCopyWidgetState
         final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
         if (keyboardHeight > 0) {
           _scrollController.animateTo(
-            _scrollController.position.maxScrollExtent + keyboardHeight,
-            duration: Duration(milliseconds: 300),
+            keyboardHeight, // reverse 모드에서는 키보드 높이만큼만 스크롤
+            duration: Duration(milliseconds: 200),
             curve: Curves.easeOut,
           );
         } else {
@@ -89,43 +122,67 @@ class _MassageDetailRoommateCopyWidgetState
     });
   }
 
+  // 강제로 스크롤을 맨 아래로 이동 (답변 로딩 완료 후)
+  void _forceScrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          0, // reverse 모드에서는 0이 최신 메시지
+          duration: Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        FocusScope.of(context).unfocus();
-        FocusManager.instance.primaryFocus?.unfocus();
-      },
-      child: Scaffold(
-        resizeToAvoidBottomInset: true,
-        key: scaffoldKey,
-        backgroundColor: Colors.white,
-        body: SafeArea(
-          top: true,
-          child: Column(
-            mainAxisSize: MainAxisSize.max,
-            children: [
-              // 헤더 부분
-              _buildHeader(),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.max,
-                  children: [
-                    Divider(
-                      thickness: 2.0,
-                      color: FlutterFlowTheme.of(context).alternate,
+    return Scaffold(
+      resizeToAvoidBottomInset: true,
+      key: scaffoldKey,
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        top: true,
+        child: Column(
+          mainAxisSize: MainAxisSize.max,
+          children: [
+            // 헤더 부분
+            _buildHeader(),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.max,
+                children: [
+                  Divider(
+                    thickness: 2.0,
+                    color: FlutterFlowTheme.of(context).alternate,
+                  ),
+                  // 채팅 메시지 목록
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        // 채팅 영역 터치 시 키보드 숨기기
+                        FocusScope.of(context).unfocus();
+                      },
+                      child: Stack(
+                        children: [
+                          _buildChatMessages(),
+                          // 새 메시지 알림 표시
+                          if (_showNewMessageIndicator)
+                            Positioned(
+                              bottom: 16.0,
+                              right: 16.0,
+                              child: _buildNewMessageIndicator(),
+                            ),
+                        ],
+                      ),
                     ),
-                    // 채팅 메시지 목록
-                    Expanded(
-                      child: _buildChatMessages(),
-                    ),
-                    // 메시지 입력 부분
-                    _buildMessageInput(),
-                  ],
-                ),
+                  ),
+                  // 메시지 입력 부분
+                  _buildMessageInput(),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -289,11 +346,30 @@ class _MassageDetailRoommateCopyWidgetState
             messages = _model.messages;
           }
 
-          // 새 메시지가 추가되면 스크롤을 맨 아래로 이동
+          // 새 메시지가 추가되었는지 확인하고 알림 표시
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (messages.isNotEmpty) {
-              // 채팅방 진입 시 또는 새 메시지 수신 시 스크롤 조정
-              _scrollToBottomWithKeyboard();
+            if (messages.isNotEmpty && !_isInitialLoad) {
+              // 메시지 개수가 증가했는지 확인
+              if (messages.length > _lastMessageCount) {
+                // 사용자가 스크롤을 맨 위에 있는지 확인 (reverse 모드)
+                bool isAtTop = _scrollController.hasClients &&
+                    _scrollController.position.pixels <= 30;
+
+                if (!isAtTop) {
+                  // 새 메시지 알림 표시 (새로운 메시지가 왔을 때만)
+                  setState(() {
+                    _showNewMessageIndicator = true;
+                  });
+                } else {
+                  // 맨 위에 있으면 자동으로 스크롤
+                  _scrollToBottom();
+                }
+
+                _lastMessageCount = messages.length;
+              }
+            } else if (_isInitialLoad) {
+              // 초기 로드 시에는 메시지 개수만 업데이트
+              _lastMessageCount = messages.length;
             }
           });
 
@@ -301,8 +377,11 @@ class _MassageDetailRoommateCopyWidgetState
             controller: _scrollController,
             padding: EdgeInsets.symmetric(horizontal: 16.0),
             itemCount: messages.length,
+            reverse: true, // 맨 밑 대화창이 보이도록 reverse 사용
             itemBuilder: (context, index) {
-              Map<String, dynamic> messageData = messages[index];
+              // reverse가 true이므로 인덱스를 뒤집어서 처리
+              Map<String, dynamic> messageData =
+                  messages[messages.length - 1 - index];
               bool isMyMessage = messageData['senderId'] == 'student';
 
               return _buildMessageBubble(messageData, isMyMessage);
@@ -318,8 +397,11 @@ class _MassageDetailRoommateCopyWidgetState
       controller: _scrollController,
       padding: EdgeInsets.symmetric(horizontal: 16.0),
       itemCount: _model.messages.length,
+      reverse: true, // 맨 밑 대화창이 보이도록 reverse 사용
       itemBuilder: (context, index) {
-        Map<String, dynamic> messageData = _model.messages[index];
+        // reverse가 true이므로 인덱스를 뒤집어서 처리
+        Map<String, dynamic> messageData =
+            _model.messages[_model.messages.length - 1 - index];
         bool isMyMessage = messageData['senderId'] == 'student';
 
         return _buildMessageBubble(messageData, isMyMessage);
@@ -457,6 +539,7 @@ class _MassageDetailRoommateCopyWidgetState
               ),
               child: TextField(
                 controller: _model.messageController,
+                focusNode: _textFieldFocusNode,
                 decoration: InputDecoration(
                   hintText: '메세지를 입력하세요',
                   hintStyle: TextStyle(
@@ -471,8 +554,10 @@ class _MassageDetailRoommateCopyWidgetState
                   _sendMessage();
                 },
                 onTap: () {
-                  // 입력 필드 터치 시 스크롤 조정
-                  Future.delayed(Duration(milliseconds: 300), () {
+                  // 입력 필드 터치 시 포커스 주고 스크롤 조정
+                  _textFieldFocusNode.requestFocus();
+                  // 키보드가 올라올 때까지 잠시 대기
+                  Future.delayed(Duration(milliseconds: 100), () {
                     if (mounted) {
                       _scrollToBottomWithKeyboard();
                     }
@@ -527,11 +612,57 @@ class _MassageDetailRoommateCopyWidgetState
     // 입력 필드 포커스 해제
     FocusScope.of(context).unfocus();
 
-    // 메시지 전송 후 스크롤을 맨 아래로 이동 (키보드 고려)
-    Future.delayed(Duration(milliseconds: 300), () {
+    // 메시지 전송 후 자연스럽게 맨 밑 대화창이 보이도록 조정
+    Future.delayed(Duration(milliseconds: 200), () {
       if (mounted) {
         _scrollToBottomWithKeyboard();
       }
     });
+  }
+
+  // 새 메시지 알림 위젯
+  Widget _buildNewMessageIndicator() {
+    return GestureDetector(
+      onTap: () {
+        // 알림 터치 시 맨 아래로 스크롤하고 알림 숨기기
+        _scrollToBottomWithKeyboard();
+        setState(() {
+          _showNewMessageIndicator = false;
+        });
+      },
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+        decoration: BoxDecoration(
+          color: Color(0xFF2C79E5),
+          borderRadius: BorderRadius.circular(20.0),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 10.0,
+              offset: Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.keyboard_arrow_down,
+              color: Colors.white,
+              size: 20.0,
+            ),
+            SizedBox(width: 8.0),
+            Text(
+              '새 메시지',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 14.0,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

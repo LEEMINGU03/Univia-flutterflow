@@ -147,6 +147,20 @@ class _ChatingMainWidgetState extends State<ChatingMainWidget>
               );
             },
           ),
+          SizedBox(height: 16.0),
+          _buildRoleCard(
+            title: '챗봇',
+            description: 'AI 어시스턴트 - 24시간 상담 가능',
+            icon: Icons.smart_toy,
+            iconColor: Color(0xFF9C27B0),
+            backgroundColor: Color(0xFFF3E5F5),
+            onTap: () {
+              context.pushNamed(
+                'massage_detail_roommateCopy',
+                queryParameters: {'role': 'chatbot'},
+              );
+            },
+          ),
         ],
       ),
     );
